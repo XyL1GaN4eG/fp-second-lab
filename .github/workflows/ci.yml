@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: 5.3.0
+          opam-depext: true
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --yes
+
+      - name: Format check (ocamlformat via dune fmt)
+        run: |
+          opam exec -- dune fmt
+          git diff --exit-code
+
+      - name: Build
+        run: opam exec -- dune build
+
+      - name: Test
+        run: opam exec -- dune test
