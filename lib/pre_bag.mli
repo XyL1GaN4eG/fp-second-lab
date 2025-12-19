@@ -1,20 +1,20 @@
 (** Immutable multiset implemented as a prefix tree (trie). *)
 
 module type KEY = sig
-  type t
   (** Element type. *)
+  type t
 
-  type part
   (** Comparable fragment used to navigate the trie. *)
+  type part
 
-  val parts : t -> part list
   (** Splits an element into an ordered list of comparable fragments. *)
+  val parts : t -> part list
 
-  val compare_part : part -> part -> int
   (** Total order on fragments. *)
+  val compare_part : part -> part -> int
 
-  val equal : t -> t -> bool
   (** Equality on elements. *)
+  val equal : t -> t -> bool
 end
 
 module type S = sig
