@@ -50,57 +50,66 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
     if n <= 0 then acc else f v (apply_n_right (n - 1) f v acc)
 
   let add elt { total; root } =
-    let rec add_parts parts node =
-      match parts with
-      | [] -> { node with count = node.count + 1; value = Some elt }
+    let rec add_parts node = function
+      | [] ->
+          let value =
+            Option.fold
+              ~none:(Some elt)
+              ~some:(fun existing ->
+                assert (Key.equal existing elt);
+                Some existing)
+              node.value
+          in
+          { node with count = node.count + 1; value }
       | part :: rest ->
           let child =
-            match PartMap.find_opt part node.children with
-            | Some c -> c
-            | None -> empty_node
+            Option.value
+              ~default:empty_node
+              (PartMap.find_opt part node.children)
           in
-          let updated = add_parts rest child in
+          let updated = add_parts child rest in
           { node with children = PartMap.add part updated node.children }
     in
-    { total = total + 1; root = add_parts (Key.parts elt) root }
+    { total = total + 1; root = add_parts root (Key.parts elt) }
 
   let singleton elt = add elt empty
 
   let remove elt ({ total; root } as bag) =
-    let rec remove_parts parts node =
-      match parts with
+    let rec remove_parts node = function
       | [] ->
           if node.count = 0 then (node, false)
           else
             let count = node.count - 1 in
             let value = if count = 0 then None else node.value in
             ({ node with count; value }, true)
-      | part :: rest -> (
-          match PartMap.find_opt part node.children with
-          | None -> (node, false)
-          | Some child ->
-              let child', removed = remove_parts rest child in
+      | part :: rest ->
+          Option.fold
+            ~none:(node, false)
+            ~some:(fun child ->
+              let child', removed = remove_parts child rest in
               if not removed then (node, false)
               else
                 let children =
-                  if is_empty_node child' then PartMap.remove part node.children
+                  if is_empty_node child' then
+                    PartMap.remove part node.children
                   else PartMap.add part child' node.children
                 in
                 ({ node with children }, true))
+            (PartMap.find_opt part node.children)
     in
-    let updated_root, removed = remove_parts (Key.parts elt) root in
+    let updated_root, removed = remove_parts root (Key.parts elt) in
     if not removed then bag else { total = total - 1; root = updated_root }
 
   let count elt { root; _ } =
-    let rec count_parts parts node =
-      match parts with
+    let rec count_parts node = function
       | [] -> node.count
-      | part :: rest -> (
-          match PartMap.find_opt part node.children with
-          | None -> 0
-          | Some child -> count_parts rest child)
+      | part :: rest ->
+          Option.fold
+            ~none:0
+            ~some:(fun child -> count_parts child rest)
+            (PartMap.find_opt part node.children)
     in
-    count_parts (Key.parts elt) root
+    count_parts root (Key.parts elt)
 
   let mem elt t = count elt t > 0
   let size { total; _ } = total
@@ -109,18 +118,23 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
     let children =
       PartMap.merge
         (fun _ l r ->
-          match (l, r) with
-          | None, None -> None
-          | Some c, None | None, Some c -> Some c
-          | Some l, Some r -> Some (merge_nodes l r))
+          (function
+            | None, None -> None
+            | Some c, None | None, Some c -> Some c
+            | Some l, Some r -> Some (merge_nodes l r))
+            (l, r))
         left.children right.children
     in
     let count = left.count + right.count in
     let value =
-      match (left.value, right.value) with
-      | Some v, _ when left.count > 0 -> Some v
-      | _, Some v when right.count > 0 -> Some v
-      | _ -> None
+      (function
+        | Some l, Some r ->
+            assert (Key.equal l r);
+            Some l
+        | Some v, None -> Some v
+        | None, Some v -> Some v
+        | None, None -> None)
+        (left.value, right.value)
     in
     { count; value; children }
 
@@ -132,17 +146,8 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
 
   let rec equal_nodes left right =
     left.count = right.count
-    && (match (left.value, right.value) with
-      | None, None -> true
-      | Some l, Some r -> Key.equal l r
-      | _ -> false)
-    && PartMap.cardinal left.children = PartMap.cardinal right.children
-    && PartMap.for_all
-         (fun key lchild ->
-           match PartMap.find_opt key right.children with
-           | None -> false
-           | Some rchild -> equal_nodes lchild rchild)
-         left.children
+    && Option.equal Key.equal left.value right.value
+    && PartMap.equal equal_nodes left.children right.children
 
   let equal left right =
     left.total = right.total && equal_nodes left.root right.root
@@ -151,7 +156,8 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
 
   let rec fold_node_left f acc node =
     let acc =
-      match node.value with None -> acc | Some v -> apply_n node.count f acc v
+      Option.fold ~none:acc ~some:(fun v -> apply_n node.count f acc v)
+        node.value
     in
     PartMap.fold
       (fun _ child acc -> fold_node_left f acc child)
@@ -166,9 +172,8 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
         (PartMap.bindings node.children)
         acc
     in
-    match node.value with
-    | None -> acc
-    | Some v -> apply_n_right node.count f v acc
+    Option.fold ~none:acc ~some:(fun v -> apply_n_right node.count f v acc)
+      node.value
 
   let fold_right f { root; _ } init = fold_node_right f root init
   let to_list bag = fold_right (fun elt acc -> elt :: acc) bag []

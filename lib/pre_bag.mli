@@ -7,13 +7,16 @@ module type KEY = sig
   (** Comparable fragment used to navigate the trie. *)
   type part
 
-  (** Splits an element into an ordered list of comparable fragments. *)
+  (** Splits an element into an ordered list of comparable fragments.
+
+      Must be deterministic and injective: if [parts a = parts b] then
+      [equal a b] must hold. Otherwise [add] and [union] will assert. *)
   val parts : t -> part list
 
   (** Total order on fragments. *)
   val compare_part : part -> part -> int
 
-  (** Equality on elements. *)
+  (** Equality on elements, consistent with [parts]. *)
   val equal : t -> t -> bool
 end
 
