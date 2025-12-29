@@ -42,51 +42,78 @@ let test_fold_projection () =
     "fold_right preserves multiplicity" true
     (String.length concatenated = 6)
 
-let random_string state =
-  let len = Random.State.int state 9 in
-  String.init len (fun _ -> Char.chr (97 + Random.State.int state 26))
+open QCheck
 
-let random_strings state =
-  let len = Random.State.int state 20 in
-  List.init len (fun _ -> random_string state)
+let arb_string =
+  let gen = Gen.string_size ~gen:Gen.printable Gen.(int_bound 8) in
+  make ~print:Print.string ~shrink:Shrink.string gen
 
-let check_property name ?(trials = 200) property =
-  Alcotest.test_case name `Quick (fun () ->
-      let state = Random.State.make [| Hashtbl.hash name |] in
-      let rec loop i =
-        if i <= 0 then ()
-        else if property state then loop (i - 1)
-        else Alcotest.failf "%s failed after %d trials" name (trials - i + 1)
-      in
-      loop trials)
+let arb_strings = list_of_size Gen.(int_bound 20) arb_string
 
-let property_union_left_identity state =
-  let bag = bag_of_list (random_strings state) in
-  Bag.equal (Bag.union Bag.empty bag) bag
+let prop_union_left_identity =
+  Test.make ~name:"union left identity" arb_strings (fun strings ->
+      let bag = bag_of_list strings in
+      Bag.equal (Bag.union Bag.empty bag) bag)
 
-let property_union_right_identity state =
-  let bag = bag_of_list (random_strings state) in
-  Bag.equal (Bag.union bag Bag.empty) bag
+let prop_union_right_identity =
+  Test.make ~name:"union right identity" arb_strings (fun strings ->
+      let bag = bag_of_list strings in
+      Bag.equal (Bag.union bag Bag.empty) bag)
 
-let property_union_associative state =
-  let a = bag_of_list (random_strings state) in
-  let b = bag_of_list (random_strings state) in
-  let c = bag_of_list (random_strings state) in
-  Bag.equal (Bag.union (Bag.union a b) c) (Bag.union a (Bag.union b c))
+let prop_union_associative =
+  Test.make ~name:"union associative"
+    (triple arb_strings arb_strings arb_strings)
+    (fun (a, b, c) ->
+      let a = bag_of_list a in
+      let b = bag_of_list b in
+      let c = bag_of_list c in
+      Bag.equal
+        (Bag.union (Bag.union a b) c)
+        (Bag.union a (Bag.union b c)))
 
-let property_remove_reverts_add state =
-  let items = random_strings state in
-  let value = random_string state in
-  let bag = bag_of_list items in
-  Bag.equal (Bag.remove value (Bag.add value bag)) bag
+let prop_remove_reverts_add =
+  Test.make ~name:"remove after add restores"
+    (pair arb_string arb_strings) (fun (value, items) ->
+      let bag = bag_of_list items in
+      Bag.equal (Bag.remove value (Bag.add value bag)) bag)
+
+let prop_union_count_additive =
+  Test.make ~name:"union adds counts"
+    (triple arb_string arb_strings arb_strings)
+    (fun (value, left, right) ->
+      let left_bag = bag_of_list left in
+      let right_bag = bag_of_list right in
+      let union_bag = Bag.union left_bag right_bag in
+      Bag.count value union_bag
+      = Bag.count value left_bag + Bag.count value right_bag)
+
+let prop_size_matches_list =
+  Test.make ~name:"size equals list length" arb_strings (fun strings ->
+      let bag = bag_of_list strings in
+      Bag.size bag = List.length (Bag.to_list bag))
+
+let prop_map_id =
+  Test.make ~name:"map id is identity" arb_strings (fun strings ->
+      let bag = bag_of_list strings in
+      Bag.equal (Bag.map (fun x -> x) bag) bag)
+
+let prop_filter_true =
+  Test.make ~name:"filter true is identity" arb_strings (fun strings ->
+      let bag = bag_of_list strings in
+      Bag.equal (Bag.filter (fun _ -> true) bag) bag)
 
 let property_tests =
-  [
-    check_property "union left identity" property_union_left_identity;
-    check_property "union right identity" property_union_right_identity;
-    check_property "union associative" property_union_associative;
-    check_property "remove after add restores" property_remove_reverts_add;
-  ]
+  List.map QCheck_alcotest.to_alcotest
+    [
+      prop_union_left_identity;
+      prop_union_right_identity;
+      prop_union_associative;
+      prop_remove_reverts_add;
+      prop_union_count_additive;
+      prop_size_matches_list;
+      prop_map_id;
+      prop_filter_true;
+    ]
 
 let () =
   Alcotest.run "pre_bag"

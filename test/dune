@@ -1,4 +1,4 @@
 (test
  (name test_pre_bag)
  (modules test_pre_bag)
- (libraries pre_bag alcotest))
+ (libraries pre_bag alcotest qcheck qcheck-alcotest))
