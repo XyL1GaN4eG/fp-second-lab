@@ -12,69 +12,92 @@
 2. `filter`, `map`, `fold_left`, `fold_right` позволяют обрабатывать коллекцию без нарушения неизменяемости.
 3. `union` образует моноид с нейтральным `empty` и проверенной ассоциативностью.
 4. Структура полиморфна и определяется функтором `Pre_bag.Make`, принимающим реализацию `KEY`.
-5. Для всего API написаны модульные тесты и свойства Alcotest.
+5. Для всего API написаны модульные тесты и property-based проверки на Alcotest + QCheck.
 
 ## Реализация (ключевые элементы)
 
 - `lib/pre_bag.mli` описывает контракт:
-  - `module type KEY` задаёт элемент `t`, его часть `part`, разбиение `parts : t -> part list`, полный порядок на частях и равенство элементов; так обеспечивается работа tries для любых ключей (строки, списки токенов и т.д.).
+  - `module type KEY` задаёт элемент `t`, его часть `part`, разбиение `parts : t -> part list`, полный порядок на частях и равенство элементов; дополнительно фиксируется инвариант: `parts` детерминирована и инъективна относительно `equal` (иначе срабатывает `assert` в `add/union`).
   - `module type S` определяет публичный интерфейс мультимножества (конструкторы, запросы, свёртки, преобразования).
   - `module Make (Key : KEY)` предоставляет реально используемый модуль `Bag`.
 - `lib/pre_bag.ml` — реализация trie:
   - Узлы дерева: `type node = { count : int; value : elt option; children : node PartMap.t }`. `count` хранит кратность элемента, `value` фиксирует сам элемент в листьях, а `PartMap` (на базе `Map.Make`) обеспечивает сортировку ветвей по `part`.
-  - Добавление разбивает ключ на фрагменты и при необходимости создаёт дочерние узлы; кратность и общий счётчик обновляются одним проходом:
+  - Добавление разбивает ключ на фрагменты и при необходимости создаёт дочерние узлы; кратность и общий счётчик обновляются одним проходом, а при попытке «перезаписать» другой элемент для тех же частей срабатывает `assert`:
 
     ```ocaml
     let add elt { total; root } =
-      let rec add_parts parts node =
-        match parts with
-        | [] -> { node with count = node.count + 1; value = Some elt }
+      let rec add_parts node = function
+        | [] ->
+            let value =
+              Option.fold
+                ~none:(Some elt)
+                ~some:(fun existing ->
+                  assert (Key.equal existing elt);
+                  Some existing)
+                node.value
+            in
+            { node with count = node.count + 1; value }
         | part :: rest ->
-            let child = PartMap.find_opt part node.children |> Option.value ~default:empty_node in
-            let updated = add_parts rest child in
+            let child =
+              Option.value
+                ~default:empty_node
+                (PartMap.find_opt part node.children)
+            in
+            let updated = add_parts child rest in
             { node with children = PartMap.add part updated node.children }
       in
-      { total = total + 1; root = add_parts (Key.parts elt) root }
+      { total = total + 1; root = add_parts root (Key.parts elt) }
     ```
 
   - Удаление проходит по тем же частям, уменьшает `count` и при нуле удаляет ветку, чтобы не захламлять trie.
-  - `union` реализован через рекурсивное слияние поддеревьев, что даёт моноидную операцию без преобразования к спискам:
+  - `union` реализован через рекурсивное слияние поддеревьев, что даёт моноидную операцию без преобразования к спискам. При попытке объединить узлы, у которых одна и та же цепочка частей указывает на разные элементы, срабатывает `assert`:
 
     ```ocaml
     let rec merge_nodes left right =
       let children =
-        PartMap.merge (fun _ l r -> match (l, r) with
-          | None, None -> None
-          | Some c, None | None, Some c -> Some c
-          | Some l, Some r -> Some (merge_nodes l r))
+        PartMap.merge
+          (fun _ l r ->
+            (function
+              | None, None -> None
+              | Some c, None | None, Some c -> Some c
+              | Some l, Some r -> Some (merge_nodes l r))
+              (l, r))
           left.children right.children
       in
       let count = left.count + right.count in
       let value =
-        match (left.value, right.value) with
-        | Some v, _ when left.count > 0 -> Some v
-        | _, Some v when right.count > 0 -> Some v
-        | _ -> None
+        (function
+          | Some l, Some r ->
+              assert (Key.equal l r);
+              Some l
+          | Some v, None -> Some v
+          | None, Some v -> Some v
+          | None, None -> None)
+          (left.value, right.value)
       in
       { count; value; children }
     ```
 
-    Сам `union` просто складывает `total` и вызывает `merge_nodes`, а `equal` рекурсивно сравнивает соответствующие поддеревья через `Key.equal`.
+    Сам `union` просто складывает `total` и вызывает `merge_nodes`, а `equal` рекурсивно сравнивает соответствующие поддеревья через `Option.equal` и `PartMap.equal`.
   - `filter` и `map` строят новый bag через свёртку и повторное `add`, сохраняя иммутабельность; вспомогательные `apply_n`/`apply_n_right` гарантируют, что кратности считаются корректно при линейном/обратном обходе.
 
 ## Тестирование
 
 - Unit-тесты (`test/test_pre_bag.ml`) на Alcotest покрывают счётчики, удаление, фильтрацию/отображение и обе свёртки. Используется конкретный `String_key`, разбивающий строку на символы.
-- Property-based тесты описаны тем же файлом. Вспомогательная функция `check_property` запускает до 200 прогонов на псевдослучайных данных. Проверяются:
+- Property-based тесты описаны тем же файлом и запускаются через QCheck/QCheck-alcotest. Проверяются:
   - левый и правый нейтральные элементы для `union`;
   - ассоциативность `union`;
   - обратимость операции `add`/`remove` для одного элемента (удаление сразу после добавления возвращает исходный bag).
-- Команда запуска: `dune test`. Она собирает библиотеку и запускает оба набора тестов.
+  - аддитивность `count` при `union`;
+  - `size = длина (to_list)`;
+  - `map id = id`;
+  - `filter true = id`.
+- Команда запуска: `dune runtest` (то же самое, что `dune test`). Она собирает библиотеку и запускает оба набора тестов.
 
 ## Сборка и форматирование
 
 - `dune build` — сборка библиотеки.
-- `dune fmt` — автоформатирование всех OCaml-модулей согласно настройке `(formatting (enabled_for ocaml))` из `dune-project`.
+- `dune fmt` — автоформатирование всех OCaml-модулей согласно `.ocamlformat`.
 - `dune runtest`/`dune test` — запуск тестового набора (unit + property).
 
 ## Выводы
