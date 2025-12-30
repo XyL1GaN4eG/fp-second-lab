@@ -53,8 +53,7 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
     let rec add_parts node = function
       | [] ->
           let value =
-            Option.fold
-              ~none:(Some elt)
+            Option.fold ~none:(Some elt)
               ~some:(fun existing ->
                 assert (Key.equal existing elt);
                 Some existing)
@@ -63,8 +62,7 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
           { node with count = node.count + 1; value }
       | part :: rest ->
           let child =
-            Option.value
-              ~default:empty_node
+            Option.value ~default:empty_node
               (PartMap.find_opt part node.children)
           in
           let updated = add_parts child rest in
@@ -83,15 +81,13 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
             let value = if count = 0 then None else node.value in
             ({ node with count; value }, true)
       | part :: rest ->
-          Option.fold
-            ~none:(node, false)
+          Option.fold ~none:(node, false)
             ~some:(fun child ->
               let child', removed = remove_parts child rest in
               if not removed then (node, false)
               else
                 let children =
-                  if is_empty_node child' then
-                    PartMap.remove part node.children
+                  if is_empty_node child' then PartMap.remove part node.children
                   else PartMap.add part child' node.children
                 in
                 ({ node with children }, true))
@@ -104,8 +100,7 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
     let rec count_parts node = function
       | [] -> node.count
       | part :: rest ->
-          Option.fold
-            ~none:0
+          Option.fold ~none:0
             ~some:(fun child -> count_parts child rest)
             (PartMap.find_opt part node.children)
     in
@@ -156,7 +151,8 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
 
   let rec fold_node_left f acc node =
     let acc =
-      Option.fold ~none:acc ~some:(fun v -> apply_n node.count f acc v)
+      Option.fold ~none:acc
+        ~some:(fun v -> apply_n node.count f acc v)
         node.value
     in
     PartMap.fold
@@ -172,7 +168,8 @@ module Make (Key : KEY) : S with type elt = Key.t = struct
         (PartMap.bindings node.children)
         acc
     in
-    Option.fold ~none:acc ~some:(fun v -> apply_n_right node.count f v acc)
+    Option.fold ~none:acc
+      ~some:(fun v -> apply_n_right node.count f v acc)
       node.value
 
   let fold_right f { root; _ } init = fold_node_right f root init

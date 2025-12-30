@@ -62,25 +62,21 @@ let prop_union_right_identity =
 
 let prop_union_associative =
   Test.make ~name:"union associative"
-    (triple arb_strings arb_strings arb_strings)
-    (fun (a, b, c) ->
+    (triple arb_strings arb_strings arb_strings) (fun (a, b, c) ->
       let a = bag_of_list a in
       let b = bag_of_list b in
       let c = bag_of_list c in
-      Bag.equal
-        (Bag.union (Bag.union a b) c)
-        (Bag.union a (Bag.union b c)))
+      Bag.equal (Bag.union (Bag.union a b) c) (Bag.union a (Bag.union b c)))
 
 let prop_remove_reverts_add =
-  Test.make ~name:"remove after add restores"
-    (pair arb_string arb_strings) (fun (value, items) ->
+  Test.make ~name:"remove after add restores" (pair arb_string arb_strings)
+    (fun (value, items) ->
       let bag = bag_of_list items in
       Bag.equal (Bag.remove value (Bag.add value bag)) bag)
 
 let prop_union_count_additive =
   Test.make ~name:"union adds counts"
-    (triple arb_string arb_strings arb_strings)
-    (fun (value, left, right) ->
+    (triple arb_string arb_strings arb_strings) (fun (value, left, right) ->
       let left_bag = bag_of_list left in
       let right_bag = bag_of_list right in
       let union_bag = Bag.union left_bag right_bag in
