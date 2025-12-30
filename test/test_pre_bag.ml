@@ -48,7 +48,9 @@ let arb_string =
   let gen = Gen.string_size ~gen:Gen.printable Gen.(int_bound 8) in
   make ~print:Print.string ~shrink:Shrink.string gen
 
-let arb_strings = list_of_size Gen.(int_bound 20) arb_string
+let arb_strings =
+  let gen = Gen.list_size Gen.(int_bound 20) arb_string.gen in
+  make ~print:Print.(list string) gen
 
 let prop_union_left_identity =
   Test.make ~name:"union left identity" arb_strings (fun strings ->
